@@ -56,7 +56,7 @@ var poOrderGlobal bool
 
 func init() {
 	// Version flag enables `--version`; default to dev unless overridden via -ldflags
-	rootCmd.Version = "dev"
+	rootCmd.Version = "v1.0.0"
 
 	// Include author in help and version output
 	helpTmpl := rootCmd.HelpTemplate() + "\nAuthor: {{index .Annotations \"author\"}}\n"
