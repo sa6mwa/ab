@@ -37,7 +37,7 @@ Flags:
       --confirm string    Confirmation mode: always|mutations|never (overrides AB_CONFIRM)
   -d, --default-columns   Use default Agile columns: New,Active,Resolved,Closed (overrides AB_COLUMNS)
   -h, --help              help for ab
-  -P, --po-order          Order items by PO priority where possible (StackRank for Stories/Bugs)
+  -P, --po-order          Order by PO priority where possible (StackRank for Stories/Bugs). Can be set via AB_PO_ORDER=true or AB_STACKRANK=true; flag overrides if provided
   -s, --silent            Silent mode: do not print az commands, only outputs
   -v, --version           version for ab
   -y, --yes               Do not prompt; equivalent to --confirm never
