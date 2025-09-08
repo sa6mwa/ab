@@ -121,6 +121,8 @@ var showCmd = &cobra.Command{
 			if len(children) == 0 {
 				b.WriteString("No work-items found.\n")
 			} else {
+				// Resolve current user's displayName for bolding
+				meDisplay, _ := az.CurrentUserDisplayName()
 				sort.Slice(children, func(i, j int) bool { return children[i].ID > children[j].ID })
 				b.WriteString("| ID | Type | State | Assignee | Title |\n")
 				b.WriteString("|---:|:-----|:------|:---------|:------|\n")
@@ -130,7 +132,11 @@ var showCmd = &cobra.Command{
 					ass := assigneeDisplay(c.Fields)
 					title := util.FieldString(c.Fields, "System.Title")
 					title = strings.ReplaceAll(title, "|", "\\|")
-					fmt.Fprintf(&b, "| %d | %s | %s | %s | %s |\n", c.ID, t, s, ass, title)
+					if s == "Active" && ass == meDisplay && meDisplay != "" {
+						fmt.Fprintf(&b, "| **%d** | **%s** | **%s** | **%s** | **%s** |\n", c.ID, t, s, ass, title)
+					} else {
+						fmt.Fprintf(&b, "| %d | %s | %s | %s | %s |\n", c.ID, t, s, ass, title)
+					}
 				}
 			}
 			b.WriteString("\n")
