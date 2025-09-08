@@ -375,25 +375,31 @@ func baseListWIQL(typeFilter string) string {
 
 // renderList fetches details and prints a glow-style rendered markdown table to stdout.
 func renderItems(items []queryItem) (string, error) {
-	if len(items) == 0 {
-		fmt.Println("No work-items found.")
-		return "# Work Items\n\nNo work-items found.\n", nil
-	}
-	// Preserve order from WIQL; do not resort here
-	// Build Markdown table
-	var b bytes.Buffer
-	b.WriteString("# Work Items\n\n")
-	b.WriteString("| ID | Type | State | Assignee | Title |\n")
-	b.WriteString("|---:|:-----|:------|:---------|:------|\n")
-	for _, wi := range items {
-		t := util.FieldString(wi.Fields, "System.WorkItemType")
-		s := util.FieldString(wi.Fields, "System.State")
-		ass := assigneeDisplay(wi.Fields)
-		title := util.FieldString(wi.Fields, "System.Title")
-		// Avoid breaking the table by escaping pipes
-		title = strings.ReplaceAll(title, "|", "\\|")
-		fmt.Fprintf(&b, "| %d | %s | %s | %s | %s |\n", wi.ID, t, s, ass, title)
-	}
+    if len(items) == 0 {
+        fmt.Println("No work-items found.")
+        return "# Work Items\n\nNo work-items found.\n", nil
+    }
+    // Preserve order from WIQL; do not resort here
+    // Build Markdown table
+    var b bytes.Buffer
+    b.WriteString("# Work Items\n\n")
+    b.WriteString("| ID | Type | State | Assignee | Title |\n")
+    b.WriteString("|---:|:-----|:------|:---------|:------|\n")
+    // Resolve current user's displayName for bolding
+    meDisplay, _ := az.CurrentUserDisplayName()
+    for _, wi := range items {
+        t := util.FieldString(wi.Fields, "System.WorkItemType")
+        s := util.FieldString(wi.Fields, "System.State")
+        ass := assigneeDisplay(wi.Fields)
+        title := util.FieldString(wi.Fields, "System.Title")
+        // Avoid breaking the table by escaping pipes
+        title = strings.ReplaceAll(title, "|", "\\|")
+        if s == "Active" && ass == meDisplay && meDisplay != "" {
+            fmt.Fprintf(&b, "| **%d** | **%s** | **%s** | **%s** | **%s** |\n", wi.ID, t, s, ass, title)
+        } else {
+            fmt.Fprintf(&b, "| %d | %s | %s | %s | %s |\n", wi.ID, t, s, ass, title)
+        }
+    }
 	md := b.String()
 	// Render with glamour and wrap to terminal width
 	r, err := glamour.NewTermRenderer(
@@ -414,25 +420,31 @@ func renderItems(items []queryItem) (string, error) {
 
 // renderItemsTypeLess renders heading with columns without Type: ID | State | Assignee | Title
 func renderItemsTypeLess(items []queryItem, heading string) (string, error) {
-	if len(items) == 0 {
-		fmt.Println("No work-items found.")
-		return "# Work Items\n\nNo work-items found.\n", nil
-	}
-	// Preserve order from WIQL; do not resort here
-	var b bytes.Buffer
-	if heading == "" {
-		heading = "Work Items"
-	}
-	b.WriteString("# " + heading + "\n\n")
-	b.WriteString("| ID | State | Assignee | Title |\n")
-	b.WriteString("|---:|:------|:---------|:------|\n")
-	for _, wi := range items {
-		s := util.FieldString(wi.Fields, "System.State")
-		ass := assigneeDisplay(wi.Fields)
-		title := util.FieldString(wi.Fields, "System.Title")
-		title = strings.ReplaceAll(title, "|", "\\|")
-		fmt.Fprintf(&b, "| %d | %s | %s | %s |\n", wi.ID, s, ass, title)
-	}
+    if len(items) == 0 {
+        fmt.Println("No work-items found.")
+        return "# Work Items\n\nNo work-items found.\n", nil
+    }
+    // Preserve order from WIQL; do not resort here
+    var b bytes.Buffer
+    if heading == "" {
+        heading = "Work Items"
+    }
+    b.WriteString("# " + heading + "\n\n")
+    b.WriteString("| ID | State | Assignee | Title |\n")
+    b.WriteString("|---:|:------|:---------|:------|\n")
+    // Resolve current user's displayName for bolding
+    meDisplay, _ := az.CurrentUserDisplayName()
+    for _, wi := range items {
+        s := util.FieldString(wi.Fields, "System.State")
+        ass := assigneeDisplay(wi.Fields)
+        title := util.FieldString(wi.Fields, "System.Title")
+        title = strings.ReplaceAll(title, "|", "\\|")
+        if s == "Active" && ass == meDisplay && meDisplay != "" {
+            fmt.Fprintf(&b, "| **%d** | **%s** | **%s** | **%s** |\n", wi.ID, s, ass, title)
+        } else {
+            fmt.Fprintf(&b, "| %d | %s | %s | %s |\n", wi.ID, s, ass, title)
+        }
+    }
 	md := b.String()
 	r, err := glamour.NewTermRenderer(
 		glamour.WithAutoStyle(),
@@ -457,42 +469,52 @@ func renderItemsTypeLess(items []queryItem, heading string) (string, error) {
 
 // renderChildren prints Parent info and a children table with assignee
 func renderChildren(parent *az.WorkItem, items []queryItem) (string, error) {
-	var b bytes.Buffer
-	// Parent section
-	b.WriteString("# Parent\n\n")
-	b.WriteString("| ID | Column/State | Assignee | Title |\n")
-	b.WriteString("|---:|:-------------|:---------|:------|\n")
-	if parent != nil {
-		state := util.FieldString(parent.Fields, "System.State")
-		_, col := util.FindKanbanColumn(parent.Fields)
-		colState := state
-		if col != "" {
-			colState = fmt.Sprintf("%s (%s)", col, state)
-		}
-		ass := assigneeDisplay(parent.Fields)
-		title := util.FieldString(parent.Fields, "System.Title")
-		title = strings.ReplaceAll(title, "|", "\\|")
-		fmt.Fprintf(&b, "| %d | %s | %s | %s |\n\n", parent.ID, colState, ass, title)
-	} else {
-		b.WriteString("|(unknown)| | | |\n\n")
-	}
-	// Children table
-	if len(items) == 0 {
-		b.WriteString("No work-items found.\n")
-	} else {
-		sort.Slice(items, func(i, j int) bool { return items[i].ID > items[j].ID })
-		b.WriteString("# Work Items\n\n")
-		b.WriteString("| ID | Type | State | Assignee | Title |\n")
-		b.WriteString("|---:|:-----|:------|:---------|:------|\n")
-		for _, wi := range items {
-			t := util.FieldString(wi.Fields, "System.WorkItemType")
-			s := util.FieldString(wi.Fields, "System.State")
-			title := util.FieldString(wi.Fields, "System.Title")
-			ass := assigneeDisplay(wi.Fields)
-			title = strings.ReplaceAll(title, "|", "\\|")
-			fmt.Fprintf(&b, "| %d | %s | %s | %s | %s |\n", wi.ID, t, s, ass, title)
-		}
-	}
+    var b bytes.Buffer
+    // Parent section
+    b.WriteString("# Parent\n\n")
+    b.WriteString("| ID | Column/State | Assignee | Title |\n")
+    b.WriteString("|---:|:-------------|:---------|:------|\n")
+    // Resolve current user's displayName for bolding
+    meDisplay, _ := az.CurrentUserDisplayName()
+    if parent != nil {
+        state := util.FieldString(parent.Fields, "System.State")
+        _, col := util.FindKanbanColumn(parent.Fields)
+        colState := state
+        if col != "" {
+            colState = fmt.Sprintf("%s (%s)", col, state)
+        }
+        ass := assigneeDisplay(parent.Fields)
+        title := util.FieldString(parent.Fields, "System.Title")
+        title = strings.ReplaceAll(title, "|", "\\|")
+        if state == "Active" && ass == meDisplay && meDisplay != "" {
+            fmt.Fprintf(&b, "| **%d** | **%s** | **%s** | **%s** |\n\n", parent.ID, colState, ass, title)
+        } else {
+            fmt.Fprintf(&b, "| %d | %s | %s | %s |\n\n", parent.ID, colState, ass, title)
+        }
+    } else {
+        b.WriteString("|(unknown)| | | |\n\n")
+    }
+    // Children table
+    if len(items) == 0 {
+        b.WriteString("No work-items found.\n")
+    } else {
+        sort.Slice(items, func(i, j int) bool { return items[i].ID > items[j].ID })
+        b.WriteString("# Work Items\n\n")
+        b.WriteString("| ID | Type | State | Assignee | Title |\n")
+        b.WriteString("|---:|:-----|:------|:---------|:------|\n")
+        for _, wi := range items {
+            t := util.FieldString(wi.Fields, "System.WorkItemType")
+            s := util.FieldString(wi.Fields, "System.State")
+            title := util.FieldString(wi.Fields, "System.Title")
+            ass := assigneeDisplay(wi.Fields)
+            title = strings.ReplaceAll(title, "|", "\\|")
+            if s == "Active" && ass == meDisplay && meDisplay != "" {
+                fmt.Fprintf(&b, "| **%d** | **%s** | **%s** | **%s** | **%s** |\n", wi.ID, t, s, ass, title)
+            } else {
+                fmt.Fprintf(&b, "| %d | %s | %s | %s | %s |\n", wi.ID, t, s, ass, title)
+            }
+        }
+    }
 	md := b.String()
 	r, err := glamour.NewTermRenderer(
 		glamour.WithAutoStyle(),

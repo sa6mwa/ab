@@ -169,11 +169,20 @@ func formatAz(args []string) string {
 
 // CurrentUserUPN returns the signed-in user's principal name (email) via az ad.
 func CurrentUserUPN() (string, error) {
-	out, err := runAz("ad", "signed-in-user", "show", "--query", "userPrincipalName", "-o", "tsv")
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(out)), nil
+    out, err := runAz("ad", "signed-in-user", "show", "--query", "userPrincipalName", "-o", "tsv")
+    if err != nil {
+        return "", err
+    }
+    return strings.TrimSpace(string(out)), nil
+}
+
+// CurrentUserDisplayName returns the signed-in user's display name via az ad.
+func CurrentUserDisplayName() (string, error) {
+    out, err := runAz("ad", "signed-in-user", "show", "--query", "displayName", "-o", "tsv")
+    if err != nil {
+        return "", err
+    }
+    return strings.TrimSpace(string(out)), nil
 }
 
 // QueryWIQL returns the raw JSON output from az boards query for the provided WIQL string.
