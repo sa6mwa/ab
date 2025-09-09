@@ -71,12 +71,13 @@ var createBugCmd = &cobra.Command{
 			}
 		}
 
-		fields := map[string]string{"System.State": "New"}
-		if strings.TrimSpace(bugAssignee) != "" {
-			at := strings.TrimSpace(bugAssignee)
-			if at == "@me" {
-				me, err := az.CurrentUserUPN()
-				if err != nil {
+        // Create without setting state to avoid create-time state restrictions
+        fields := map[string]string{}
+        if strings.TrimSpace(bugAssignee) != "" {
+            at := strings.TrimSpace(bugAssignee)
+            if at == "@me" {
+                me, err := az.CurrentUserUPN()
+                if err != nil {
 					return fmt.Errorf("get current user: %w", err)
 				}
 				fields["System.AssignedTo"] = me
@@ -84,29 +85,29 @@ var createBugCmd = &cobra.Command{
 				fields["System.AssignedTo"] = at
 			}
 		}
-		// Severity via flag (defaults to 3 - Medium if unspecified)
-		if lbl, err := resolveSeverityLabel(bugSeverity); err != nil {
-			return err
-		} else if lbl != "" {
-			fields["Microsoft.VSTS.Common.Severity"] = lbl
-		} else {
-			fields["Microsoft.VSTS.Common.Severity"] = "3 - Medium"
-		}
-		raw, err := az.CreateWorkItem("Bug", title, fields, "")
-		if err != nil {
-			return err
-		}
-		var wi az.WorkItem
-		if err := json.Unmarshal(raw, &wi); err != nil {
-			return az.PrintJSON(raw)
-		}
-		// Add parent relation (child -> parent)
-		if _, err := az.AddWorkItemRelation(strconv.Itoa(wi.ID), "parent", pid); err != nil {
-			return fmt.Errorf("created bug %d but failed to add parent relation to %s: %w", wi.ID, pid, err)
-		}
-		fmt.Fprintf(os.Stderr, "Linked AB#%d as child of AB#%s\n", wi.ID, pid)
-		return renderWorkItem("Bug Created", &wi)
-	},
+        // Severity via flag (defaults to 3 - Medium if unspecified)
+        if lbl, err := resolveSeverityLabel(bugSeverity); err != nil {
+            return err
+        } else if lbl != "" {
+            fields["Microsoft.VSTS.Common.Severity"] = lbl
+        } else {
+            fields["Microsoft.VSTS.Common.Severity"] = "3 - Medium"
+        }
+        raw, err := az.CreateWorkItem("Bug", title, fields, "")
+        if err != nil {
+            return err
+        }
+        var wi az.WorkItem
+        if err := json.Unmarshal(raw, &wi); err != nil {
+            return az.PrintJSON(raw)
+        }
+        // Add parent relation (child -> parent)
+        if _, err := az.AddWorkItemRelation(strconv.Itoa(wi.ID), "parent", pid); err != nil {
+            return fmt.Errorf("created bug %d but failed to add parent relation to %s: %w", wi.ID, pid, err)
+        }
+        fmt.Fprintf(os.Stderr, "Linked AB#%d as child of AB#%s\n", wi.ID, pid)
+        return renderWorkItem("Bug Created", &wi)
+    },
 }
 
 func init() {
@@ -145,8 +146,8 @@ func interactiveCreateBug() error {
 		pid = chosen
 	}
 
-	var title, assignee, state, descMD, severity string
-	state = "New"
+    var title, assignee, state, descMD, severity string
+    state = "New"
 	if lbl, err := resolveSeverityLabel(bugSeverity); err == nil && lbl != "" {
 		severity = lbl
 	} else {
@@ -192,28 +193,38 @@ func interactiveCreateBug() error {
 	if !proceed {
 		return fmt.Errorf("cancelled")
 	}
-	fields := map[string]string{"System.State": state}
-	if strings.TrimSpace(severity) != "" {
-		fields["Microsoft.VSTS.Common.Severity"] = severity
-	}
-	if strings.TrimSpace(assignee) != "" {
-		fields["System.AssignedTo"] = assignee
-	}
-	if strings.TrimSpace(descMD) != "" {
-		fields["System.Description"] = markdownToHTML(descMD)
-	}
-	raw, err := az.CreateWorkItem("Bug", title, fields, "")
-	if err != nil {
-		return err
-	}
-	var wi az.WorkItem
-	if err := json.Unmarshal(raw, &wi); err != nil {
-		return az.PrintJSON(raw)
-	}
-	if _, err := az.AddWorkItemRelation(strconv.Itoa(wi.ID), "parent", pid); err != nil {
-		return fmt.Errorf("created bug %d but failed to add parent relation to %s: %w", wi.ID, pid, err)
-	}
-	return renderWorkItem("Bug Created", &wi)
+    // Create without state; set it with a follow-up update
+    fields := map[string]string{}
+    if strings.TrimSpace(severity) != "" {
+        fields["Microsoft.VSTS.Common.Severity"] = severity
+    }
+    if strings.TrimSpace(assignee) != "" {
+        fields["System.AssignedTo"] = assignee
+    }
+    if strings.TrimSpace(descMD) != "" {
+        fields["System.Description"] = markdownToHTML(descMD)
+    }
+    raw, err := az.CreateWorkItem("Bug", title, fields, "")
+    if err != nil {
+        return err
+    }
+    var wi az.WorkItem
+    if err := json.Unmarshal(raw, &wi); err != nil {
+        return az.PrintJSON(raw)
+    }
+    if _, err := az.AddWorkItemRelation(strconv.Itoa(wi.ID), "parent", pid); err != nil {
+        return fmt.Errorf("created bug %d but failed to add parent relation to %s: %w", wi.ID, pid, err)
+    }
+    // Update state after creation only if not default "New"
+    if strings.TrimSpace(state) != "" && strings.TrimSpace(state) != "New" {
+        if raw, err := az.UpdateWorkItemFields(strconv.Itoa(wi.ID), map[string]string{"System.State": state}); err == nil {
+            var updated az.WorkItem
+            if json.Unmarshal(raw, &updated) == nil {
+                return renderWorkItem("Bug Created", &updated)
+            }
+        }
+    }
+    return renderWorkItem("Bug Created", &wi)
 }
 
 // resolveSeverityLabel maps a numeric flag (1-4) to the display label expected by Azure Boards.
