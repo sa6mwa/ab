@@ -17,10 +17,11 @@ func withStubExec(t *testing.T, f func(args ...string) ([]byte, error), test fun
 }
 
 func TestFormatAz_Quoting(t *testing.T) {
-	got := formatAz([]string{"boards", "query", "--wiql", "SELECT 'a b'", "-o", "json"})
-	if !strings.Contains(got, `'SELECT '\''a b'\'''`) {
-		t.Fatalf("expected single-quote escaped wiql, got: %s", got)
-	}
+    got := formatAz([]string{"boards", "query", "--wiql", "SELECT 'a b'", "-o", "json"})
+    // Using shellescape now; expected pattern to embed single quotes is: '"'"'
+    if !strings.Contains(got, `'SELECT '"'"'a b'"'"''`) {
+        t.Fatalf("expected shell-escaped wiql, got: %s", got)
+    }
 }
 
 func TestConfirmModes_ShouldConfirm(t *testing.T) {

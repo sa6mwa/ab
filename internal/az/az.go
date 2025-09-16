@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"strings"
 
+	shellescape "al.essio.dev/pkg/shellescape"
 	"github.com/charmbracelet/huh"
 )
 
@@ -73,7 +74,8 @@ func parseConfirmMode(mode string) (ConfirmMode, error) {
 
 // runAz prints and confirms the az command before execution, then returns stdout or error.
 func runAz(args ...string) ([]byte, error) {
-	cmdline := formatAz(args)
+	// Print a safe-to-shell-copy command line using shellescape
+	cmdline := shellescape.QuoteCommand(append([]string{"az"}, args...))
 	if !silent {
 		fmt.Fprintln(os.Stderr, cmdline)
 	}
@@ -148,24 +150,7 @@ func shouldConfirm(args []string) bool {
 	}
 }
 
-func formatAz(args []string) string {
-	parts := make([]string, 0, len(args)+1)
-	parts = append(parts, "az")
-	for _, a := range args {
-		if a == "" {
-			parts = append(parts, "''")
-			continue
-		}
-		if strings.ContainsAny(a, " \t\n\"'") {
-			// simple shell-quote with single quotes, escape embedded single quotes
-			q := "'" + strings.ReplaceAll(a, "'", "'\\''") + "'"
-			parts = append(parts, q)
-		} else {
-			parts = append(parts, a)
-		}
-	}
-	return strings.Join(parts, " ")
-}
+func formatAz(args []string) string { return shellescape.QuoteCommand(append([]string{"az"}, args...)) }
 
 // CurrentUserUPN returns the signed-in user's principal name (email) via az ad.
 func CurrentUserUPN() (string, error) {
