@@ -13,8 +13,6 @@ editing, listing, and moving items through your Kanban flow.
 ## ab --help
 
 ```console
-ab is a thin wrapper around Azure CLI (az) boards commands for common workflows.
-
 Usage:
   ab [command]
 
@@ -29,6 +27,7 @@ Available Commands:
   help        Help about any command
   list        List work-items
   renew       Set work-item state to New
+  repo        Work with Azure Repos (gh-style)
   resolve     Set work-item state to Resolved
   show        Show a work-item and its details
   workon      Assign to me and move to Active
@@ -63,6 +62,15 @@ Author: Michel Blomgren <michel.blomgren@nionit.com>
 - Bulk resolve/renew/close/delete with multi-select.
 - Safe execution with confirm prompts; `--yes` and `--silent` to
   streamline.
+- Azure Repos integration (gh-style):
+  - `ab repo` opens a formatted picker (`<name-padded> | <id> | <size>`) with actions: Clone (SSH), Clone (HTTP), View in browser, Back, and Cancel to exit.
+  - `ab repo clone [name]` clones via SSH by default; `--https`/`--http` uses remoteUrl; supports picker when no name is provided.
+  - `ab repo view|show [name]` opens the repo in your browser; supports picker when no name is provided.
+  - `ab repo create <name>` creates a repo; `-c/--clone` immediately clones it (SSH default; `--https` available).
+  - `ab repo list` prints an aligned list: `<name-padded> | <id> | <size>`.
+  - `ab repo delete <name>` resolves ID and deletes with confirmation (skippable via global `--yes`).
+  - In-memory caching of the repo list during a session for fast Back-to-list loops and subsequent repo commands.
+  - Opens URLs with platform-specific launchers (Linux `xdg-open`, macOS `open`, Windows `rundll32 url.dll,FileProtocolHandler`).
 
 ## Install
 
@@ -193,16 +201,34 @@ to switch to the Azure DevOps Agile default flow: `New,Active,Resolved,Closed`.
 
 ## How It Works
 
-- ab shells out to `az` and uses Azure Boards JSON responses for behavior.
+- ab shells out to `az` and uses Azure DevOps JSON responses for behavior.
 - Transitions set the relevant WEF_*_Kanban.Column field; Azure maps states.
 - Assignee `@me` resolves to your signed-in userPrincipalName via `az ad`.
+- For Azure Repos, listing/creating/deleting uses `az repos`.
+  - Opening repository URLs uses platform-specific launchers: `xdg-open` (Linux), `open` (macOS), `rundll32 url.dll,FileProtocolHandler` (Windows).
+- Command printing uses safe shell-escaped output (via `al.essio.dev/pkg/shellescape`) for both `az` and `git` commands; execution remains via `exec.Command`.
 
 ## Troubleshooting
 
 - Ensure `az devops configure` defaults are set; many commands depend on them.
 - Use `--confirm always` to see and approve every `az` command.
 - Use `--silent` to hide `az` command lines if your terminal is noisy.
+- Repositories (gh-style)
+  - Pick and act: `ab repo`
+    - Select a repo from a formatted list (`<padded-name> | <id> | <size>`), then choose an action:
+      - Clone via SSH, Clone via HTTP, View in browser, Back to list.
+      - Cancel exits from the repo list.
+      - After Clone/View, returns to list so you can act on more repos.
+  - View in browser: `ab repo view` or `ab repo show my-repo`
+  - Clone directly by name: `ab repo clone my-repo` (SSH default)
+    - Use `--https`/`--http` to clone via remoteUrl.
+    - Without a name, opens the picker and clones after selection.
+  - Create: `ab repo create <name>`; clone after creating with `-c/--clone` (SSH default; `--https` available).
+  - List: `ab repo list` prints aligned names: `<name-padded> | <id> | <size>`
+  - Delete: `ab repo delete <name>` deletes by ID; always confirms unless `--yes` is given.
+
 
 ## License
 
 MIT, see `LICENSE` file.
+ab is a thin wrapper around Azure CLI (az) boards commands for common workflows.
