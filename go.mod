@@ -3,12 +3,14 @@ module github.com/sa6mwa/ab
 go 1.25.0
 
 require (
+	al.essio.dev/pkg/shellescape v1.6.0
 	github.com/JohannesKaufmann/html-to-markdown v1.6.0
 	github.com/charmbracelet/glamour v0.10.0
 	github.com/charmbracelet/huh v0.7.0
 	github.com/charmbracelet/lipgloss v1.1.1-0.20250404203927-76690c660834
 	github.com/gomarkdown/markdown v0.0.0-20250810172220-2e2c11897d1a
 	github.com/spf13/cobra v1.10.1
+	golang.org/x/term v0.31.0
 )
 
 require (
@@ -50,6 +52,5 @@ require (
 	golang.org/x/net v0.33.0 // indirect
 	golang.org/x/sync v0.16.0 // indirect
 	golang.org/x/sys v0.35.0 // indirect
-	golang.org/x/term v0.31.0 // indirect
 	golang.org/x/text v0.28.0 // indirect
 )
