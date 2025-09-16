@@ -17,12 +17,16 @@ import (
 // Shared flags
 var repoHTTPS bool
 
+// Remember last selected repo index (in-memory for the current process)
+var lastRepoIndex int
+var lastRepoIndexSet bool
+
 var repoCmd = &cobra.Command{
 	Use:   "repo",
 	Short: "Work with Azure Repos (gh-style)",
 	Long:  "Manage Azure Repos: pick, view, clone, create, list, delete.",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Default: show repo picker, then action picker
+		// Preload repos once and reuse between iterations
 		repos, err := az.ListRepos()
 		if err != nil {
 			return err
@@ -31,49 +35,56 @@ var repoCmd = &cobra.Command{
 			return fmt.Errorf("no repositories found; check az devops defaults")
 		}
 		sort.Slice(repos, func(i, j int) bool { return strings.ToLower(repos[i].Name) < strings.ToLower(repos[j].Name) })
-		var options []huh.Option[int]
-		for i, r := range repos {
-			label := fmt.Sprintf("%s | %s | %s", r.Name, r.ID, humanSize(r.Size))
-			options = append(options, huh.NewOption(label, i))
-		}
-		var chosen int
-		sel := huh.NewSelect[int]().Title("Select repository").Options(options...).Value(&chosen)
-		if err := huh.NewForm(huh.NewGroup(sel)).Run(); err != nil {
-			return err
-		}
-		r := repos[chosen]
-		// Action picker (Clone SSH, Clone HTTP, View, Cancel)
-		ssh := strings.TrimSpace(r.SSHURL)
-		http := strings.TrimSpace(r.RemoteURL)
-		web := strings.TrimSpace(r.WebURL)
-		type action int
-		const (
-			actCloneSSH action = iota
-			actCloneHTTP
-			actView
-			actCancel
-		)
-		var actOptions []huh.Option[action]
-		actOptions = append(actOptions, huh.NewOption[action](fmt.Sprintf("Clone %s (ssh)", ssh), actCloneSSH))
-		actOptions = append(actOptions, huh.NewOption[action](fmt.Sprintf("Clone %s (http)", http), actCloneHTTP))
-		actOptions = append(actOptions, huh.NewOption[action](fmt.Sprintf("View %s", web), actView))
-		actOptions = append(actOptions, huh.NewOption[action]("Cancel", actCancel))
-		var actChosen action
-		actSel := huh.NewSelect[action]().Title("Action").Options(actOptions...).Value(&actChosen)
-		if err := huh.NewForm(huh.NewGroup(actSel)).Run(); err != nil {
-			return err
-		}
-		switch actChosen {
-		case actCloneSSH:
-			return git.Clone(ssh, silentFlag)
-		case actCloneHTTP:
-			return git.Clone(http, silentFlag)
-		case actView:
-			return openurl.Open(web)
-		case actCancel:
-			return az.ErrCancelled
-		default:
-			return nil
+		for {
+			r, err := pickRepoFromList(repos)
+			if err != nil {
+				if errors.Is(err, az.ErrCancelled) {
+					return nil
+				}
+				return err
+			}
+			// Action picker (Clone SSH, Clone HTTP, View, Back)
+			ssh := strings.TrimSpace(r.SSHURL)
+			http := strings.TrimSpace(r.RemoteURL)
+			web := strings.TrimSpace(r.WebURL)
+			type action int
+			const (
+				actCloneSSH action = iota
+				actCloneHTTP
+				actView
+				actBack
+			)
+			var actOptions []huh.Option[action]
+			actOptions = append(actOptions, huh.NewOption[action](fmt.Sprintf("Clone %s (ssh)", ssh), actCloneSSH))
+			actOptions = append(actOptions, huh.NewOption[action](fmt.Sprintf("Clone %s (http)", http), actCloneHTTP))
+			actOptions = append(actOptions, huh.NewOption[action](fmt.Sprintf("View %s", web), actView))
+			actOptions = append(actOptions, huh.NewOption[action]("Back", actBack))
+			var actChosen action
+			actSel := huh.NewSelect[action]().Title("Action").Options(actOptions...).Value(&actChosen)
+			if err := huh.NewForm(huh.NewGroup(actSel)).Run(); err != nil {
+				return err
+			}
+			switch actChosen {
+			case actCloneSSH:
+				if err := git.Clone(ssh, silentFlag); err != nil {
+					return err
+				}
+				continue
+			case actCloneHTTP:
+				if err := git.Clone(http, silentFlag); err != nil {
+					return err
+				}
+				continue
+			case actView:
+				if err := openurl.Open(web); err != nil {
+					return err
+				}
+				continue
+			case actBack:
+				continue
+			default:
+				return nil
+			}
 		}
 	},
 }
@@ -143,8 +154,15 @@ var repoListCmd = &cobra.Command{
 			return nil
 		}
 		sort.Slice(repos, func(i, j int) bool { return strings.ToLower(repos[i].Name) < strings.ToLower(repos[j].Name) })
+		// Compute longest name for alignment
+		maxName := 0
 		for _, r := range repos {
-			fmt.Fprintf(os.Stdout, "%s | %s | %s\n", r.Name, r.ID, humanSize(r.Size))
+			if l := len(r.Name); l > maxName {
+				maxName = l
+			}
+		}
+		for _, r := range repos {
+			fmt.Fprintf(os.Stdout, "%-*s | %s | %s\n", maxName, r.Name, r.ID, humanSize(r.Size))
 		}
 		return nil
 	},
@@ -195,8 +213,13 @@ var repoDeleteCmd = &cobra.Command{
 				return az.ErrCancelled
 			}
 		}
+		// Resolve ID from cached list to satisfy az requirement
+		r, err := findRepo(name)
+		if err != nil {
+			return err
+		}
 		// Prevent az interactive prompt; we already confirmed above (or user passed --yes)
-		return az.DeleteRepo(name, true)
+		return az.DeleteRepo(r.ID, true)
 	},
 }
 
@@ -228,14 +251,27 @@ func pickRepo() (*az.Repo, error) {
 		return nil, fmt.Errorf("no repositories found; check az devops defaults")
 	}
 	sort.Slice(repos, func(i, j int) bool { return strings.ToLower(repos[i].Name) < strings.ToLower(repos[j].Name) })
+	// Compute longest name for alignment
+	maxName := 0
+	for _, r := range repos {
+		if l := len(r.Name); l > maxName {
+			maxName = l
+		}
+	}
 	var options []huh.Option[int]
 	for i, r := range repos {
-		options = append(options, huh.NewOption(fmt.Sprintf("%s | %s | %s", r.Name, r.ID, humanSize(r.Size)), i))
+		label := fmt.Sprintf("%-*s | %s | %s", maxName, r.Name, r.ID, humanSize(r.Size))
+		options = append(options, huh.NewOption(label, i))
 	}
+	// Add a final Cancel option that exits
+	options = append(options, huh.NewOption("Cancel", -1))
 	var chosen int
 	sel := huh.NewSelect[int]().Title("Select repository").Options(options...).Value(&chosen)
 	if err := huh.NewForm(huh.NewGroup(sel)).Run(); err != nil {
 		return nil, err
+	}
+	if chosen == -1 {
+		return nil, az.ErrCancelled
 	}
 	r := repos[chosen]
 	return &r, nil
@@ -254,6 +290,50 @@ func findRepo(nameOrID string) (*az.Repo, error) {
 		}
 	}
 	return nil, fmt.Errorf("repository not found: %s", nameOrID)
+}
+
+// pickRepoFromList shows a picker using a pre-loaded repo slice.
+// Returns ErrCancelled if user selects the final Cancel option.
+func pickRepoFromList(repos []az.Repo) (*az.Repo, error) {
+	if len(repos) == 0 {
+		return nil, fmt.Errorf("no repositories to select")
+	}
+	// Compute longest name for alignment
+	maxName := 0
+	for _, r := range repos {
+		if l := len(r.Name); l > maxName {
+			maxName = l
+		}
+	}
+	var options []huh.Option[int]
+	for i, r := range repos {
+		label := fmt.Sprintf("%-*s | %s | %s", maxName, r.Name, r.ID, humanSize(r.Size))
+		options = append(options, huh.NewOption(label, i))
+	}
+	options = append(options, huh.NewOption("Cancel", -1))
+	// Preselect last chosen index if available
+	var chosen int
+	if lastRepoIndexSet {
+		if lastRepoIndex < 0 {
+			lastRepoIndex = 0
+		}
+		if lastRepoIndex >= len(repos) {
+			lastRepoIndex = len(repos) - 1
+		}
+		chosen = lastRepoIndex
+	}
+	sel := huh.NewSelect[int]().Title("Select repository").Options(options...).Value(&chosen)
+	if err := huh.NewForm(huh.NewGroup(sel)).Run(); err != nil {
+		return nil, err
+	}
+	if chosen == -1 {
+		return nil, az.ErrCancelled
+	}
+	// Remember selection for next round
+	lastRepoIndex = chosen
+	lastRepoIndexSet = true
+	r := repos[chosen]
+	return &r, nil
 }
 
 func humanSize(n int64) string {

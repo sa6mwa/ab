@@ -44,10 +44,9 @@ func CreateRepo(name string) (*Repo, error) {
 	return &r, nil
 }
 
-// DeleteRepo deletes a repository by name or id. Pass --yes to az to avoid its prompt.
-func DeleteRepo(nameOrID string, assumeYes bool) error {
-	// Prefer deleting by name to avoid ambiguity; az accepts --repository for name.
-	args := []string{"repos", "delete", "--repository", nameOrID}
+// DeleteRepo deletes a repository by ID. Pass --yes to az to avoid its prompt.
+func DeleteRepo(id string, assumeYes bool) error {
+	args := []string{"repos", "delete", "--id", id}
 	if assumeYes {
 		args = append(args, "--yes")
 	}
