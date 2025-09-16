@@ -74,12 +74,13 @@ var createTaskCmd = &cobra.Command{
 			}
 		}
 
-		fields := map[string]string{"System.State": "New"}
-		if strings.TrimSpace(taskAssignee) != "" {
-			at := strings.TrimSpace(taskAssignee)
-			if at == "@me" {
-				me, err := az.CurrentUserUPN()
-				if err != nil {
+        // Create without setting state to avoid create-time state restrictions
+        fields := map[string]string{}
+        if strings.TrimSpace(taskAssignee) != "" {
+            at := strings.TrimSpace(taskAssignee)
+            if at == "@me" {
+                me, err := az.CurrentUserUPN()
+                if err != nil {
 					return fmt.Errorf("get current user: %w", err)
 				}
 				fields["System.AssignedTo"] = me
@@ -151,8 +152,8 @@ func interactiveCreateTask() error {
 		}
 		pid = chosen
 	}
-	var title, assignee, state, descMD string
-	state = "New"
+    var title, assignee, state, descMD string
+    state = "New"
 	// prefill assignee from flag
 	if strings.TrimSpace(taskAssignee) == "@me" {
 		if me, err := az.CurrentUserUPN(); err == nil {
@@ -186,25 +187,35 @@ func interactiveCreateTask() error {
 	if !proceed {
 		return fmt.Errorf("cancelled")
 	}
-	fields := map[string]string{"System.State": state}
-	if strings.TrimSpace(assignee) != "" {
-		fields["System.AssignedTo"] = assignee
-	}
-	if strings.TrimSpace(descMD) != "" {
-		fields["System.Description"] = markdownToHTML(descMD)
-	}
-	raw, err := az.CreateWorkItem("Task", title, fields, "")
-	if err != nil {
-		return err
-	}
-	var wi az.WorkItem
-	if err := json.Unmarshal(raw, &wi); err != nil {
-		return az.PrintJSON(raw)
-	}
-	if _, err := az.AddWorkItemRelation(strconv.Itoa(wi.ID), "parent", pid); err != nil {
-		return fmt.Errorf("created task %d but failed to add parent relation to %s: %w", wi.ID, pid, err)
-	}
-	return renderWorkItem("Task Created", &wi)
+    // Create without state; set it with a follow-up update
+    fields := map[string]string{}
+    if strings.TrimSpace(assignee) != "" {
+        fields["System.AssignedTo"] = assignee
+    }
+    if strings.TrimSpace(descMD) != "" {
+        fields["System.Description"] = markdownToHTML(descMD)
+    }
+    raw, err := az.CreateWorkItem("Task", title, fields, "")
+    if err != nil {
+        return err
+    }
+    var wi az.WorkItem
+    if err := json.Unmarshal(raw, &wi); err != nil {
+        return az.PrintJSON(raw)
+    }
+    if _, err := az.AddWorkItemRelation(strconv.Itoa(wi.ID), "parent", pid); err != nil {
+        return fmt.Errorf("created task %d but failed to add parent relation to %s: %w", wi.ID, pid, err)
+    }
+    // Update state after creation only if not default "New"
+    if strings.TrimSpace(state) != "" && strings.TrimSpace(state) != "New" {
+        if raw, err := az.UpdateWorkItemFields(strconv.Itoa(wi.ID), map[string]string{"System.State": state}); err == nil {
+            var updated az.WorkItem
+            if json.Unmarshal(raw, &updated) == nil {
+                return renderWorkItem("Task Created", &updated)
+            }
+        }
+    }
+    return renderWorkItem("Task Created", &wi)
 }
 
 func parentTitleByID(id string) string {
